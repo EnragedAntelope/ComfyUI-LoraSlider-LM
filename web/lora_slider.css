@@ -1,0 +1,256 @@
+/* LoRA Slider (LoraManager) widget styles
+ * Tuned to sit comfortably next to LoRA Manager's own nodes: flat dark surfaces,
+ * rounded cards, a single teal accent, and a left status strip on active rows. */
+
+.lora-slider-widget {
+  --ls-accent: #2bb6a6;
+  --ls-accent-dim: #1d7d72;
+  --ls-surface: #20242b;
+  --ls-surface-2: #272c34;
+  --ls-border: #3a414c;
+  --ls-text: #d7dce3;
+  --ls-muted: #8b94a3;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 12px;
+  color: var(--ls-text);
+  padding: 4px 2px;
+}
+
+/* ---- toolbar ---- */
+.ls-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.ls-tool {
+  flex: 0 1 auto;
+  padding: 5px 9px;
+  background: var(--ls-surface-2);
+  color: var(--ls-text);
+  border: 1px solid var(--ls-border);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s;
+}
+.ls-tool:hover { background: #313842; border-color: #4a525e; }
+.ls-tool-primary {
+  background: var(--ls-accent-dim);
+  border-color: var(--ls-accent);
+  color: #eafffb;
+}
+.ls-tool-primary:hover { background: var(--ls-accent); }
+.ls-sep {
+  flex: 0 0 auto;
+  width: 1px;
+  align-self: stretch;
+  min-height: 18px;
+  background: var(--ls-border);
+  margin: 0 3px;
+}
+
+/* ---- paste/type panel ---- */
+.ls-textpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--ls-surface);
+  border: 1px solid var(--ls-border);
+  border-radius: 6px;
+}
+.ls-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  background: #161a20;
+  color: var(--ls-text);
+  border: 1px solid var(--ls-border);
+  border-radius: 4px;
+  padding: 6px;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 11px;
+}
+.ls-textpanel .ls-tool-primary { align-self: flex-start; }
+
+/* ---- status line ---- */
+.ls-status {
+  padding: 4px 8px;
+  font-size: 11px;
+  color: #ffcf6b;
+  background: #2e2a1e;
+  border: 1px solid #4a4326;
+  border-radius: 4px;
+}
+
+.ls-empty {
+  padding: 12px;
+  color: var(--ls-muted);
+  font-style: italic;
+  text-align: center;
+  border: 1px dashed var(--ls-border);
+  border-radius: 6px;
+}
+
+/* ---- rows ---- */
+.ls-rows { display: flex; flex-direction: column; gap: 4px; }
+
+.ls-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px 4px 4px;
+  background: var(--ls-surface);
+  border: 1px solid var(--ls-border);
+  border-left: 3px solid var(--ls-accent);
+  border-radius: 6px;
+}
+.ls-row.ls-inactive { opacity: 0.5; border-left-color: var(--ls-muted); }
+.ls-row.ls-locked { border-left-color: #b58df1; }
+
+.ls-active { flex: 0 0 auto; cursor: pointer; accent-color: var(--ls-accent); }
+
+.ls-title {
+  flex: 1 1 110px;
+  min-width: 80px;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.ls-label {
+  flex: 0 0 auto;
+  max-width: 78px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ls-accent);
+  font-size: 11px;
+}
+.ls-low { text-align: right; }
+.ls-high { text-align: left; }
+
+.ls-range {
+  flex: 1 1 120px;
+  min-width: 80px;
+  cursor: pointer;
+  accent-color: var(--ls-accent);
+}
+.ls-range:disabled { cursor: not-allowed; opacity: 0.6; }
+
+.ls-value {
+  flex: 0 0 54px;
+  width: 54px;
+  background: #161a20;
+  color: #fff;
+  border: 1px solid var(--ls-border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  text-align: center;
+}
+
+.ls-icon {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px;
+  line-height: 1;
+  opacity: 0.85;
+}
+.ls-icon:hover { opacity: 1; filter: brightness(1.3); }
+
+/* ---- modals ---- */
+.ls-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+.ls-modal {
+  background: var(--ls-surface, #20242b);
+  color: #d7dce3;
+  border: 1px solid #3a414c;
+  border-radius: 10px;
+  padding: 18px;
+  width: 540px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow: auto;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.65);
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+.ls-modal h3 { margin: 0 0 12px; color: #fff; font-weight: 600; }
+
+.ls-picker-hint {
+  font-size: 11px;
+  color: #8b94a3;
+  margin: -4px 0 10px;
+}
+
+.ls-field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
+.ls-field label { font-size: 12px; color: #8b94a3; }
+.ls-field input,
+.ls-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px;
+  background: #161a20;
+  color: #fff;
+  border: 1px solid #3a414c;
+  border-radius: 4px;
+}
+.ls-search { margin-bottom: 6px; }
+
+.ls-picker-list {
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid #3a414c;
+  border-radius: 6px;
+  padding: 4px;
+}
+.ls-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-bottom: 1px solid #2a2f37;
+  cursor: pointer;
+  font-size: 12px;
+}
+.ls-picker-item:last-child { border-bottom: none; }
+.ls-picker-item:hover { background: #2c323b; }
+.ls-picker-item input { accent-color: #2bb6a6; }
+
+.ls-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+.ls-cancel,
+.ls-confirm {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  color: #fff;
+  font-size: 12px;
+}
+.ls-cancel { background: #3a414c; }
+.ls-confirm { background: #1d7d72; }
+.ls-cancel:hover { background: #4a525e; }
+.ls-confirm:hover { background: #2bb6a6; }
