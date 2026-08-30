@@ -10,7 +10,7 @@ import { parseStrengthHints } from "./strength_parser.js";
  * (/api/lm/loras/...) and shared ComfyUI types — it never imports LM code.
  *
  * Per-row state (serialized into the widget value):
- *   { name, modelName, filePath, value, min, max, step,
+ *   { name, modelName, displayName, filePath, value, min, max, step,
  *     lowLabel, highLabel, active, locked, triggerWords }
  *   - name: LM-style relative path WITHOUT extension ("folder/file"); this is what
  *           goes into the LORA_STACK and is re-resolved by LM's Lora Loader.
@@ -141,6 +141,7 @@ function normalizeRow(raw) {
   const row = Object.assign({}, raw);
   row.name = row.name || "";
   row.modelName = row.modelName || (row.name ? row.name.split("/").pop() : "");
+  row.displayName = row.displayName != null ? String(row.displayName) : "";
   row.filePath = row.filePath || "";
   row.min = Number.isFinite(+row.min) ? +row.min : DEFAULTS.min;
   row.max = Number.isFinite(+row.max) ? +row.max : DEFAULTS.max;
@@ -328,6 +329,35 @@ function createSlidersWidget(node, inputName) {
       commit();
     };
 
+    const dragHandle = document.createElement("span");
+    dragHandle.className = "ls-drag-handle";
+    dragHandle.textContent = "⠿";
+    dragHandle.title = "Drag to reorder this LoRA";
+    dragHandle.draggable = true;
+    dragHandle.ondragstart = (e) => {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", String(index));
+      el.classList.add("ls-dragging");
+    };
+    dragHandle.ondragend = () => el.classList.remove("ls-dragging");
+    el.ondragover = (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      el.classList.add("ls-drag-over");
+    };
+    el.ondragleave = () => el.classList.remove("ls-drag-over");
+    el.ondrop = (e) => {
+      e.preventDefault();
+      el.classList.remove("ls-drag-over");
+      const from = Number.parseInt(e.dataTransfer.getData("text/plain"), 10);
+      if (!Number.isInteger(from) || from < 0 || from >= rows.length || from === index) return;
+      const [moved] = rows.splice(from, 1);
+      rows.splice(index, 0, moved);
+      render();
+      commit();
+    };
+    el.appendChild(dragHandle);
+
     // active toggle
     const active = document.createElement("input");
     active.type = "checkbox";
@@ -344,7 +374,7 @@ function createSlidersWidget(node, inputName) {
     // title
     const title = document.createElement("span");
     title.className = "ls-title";
-    title.textContent = row.modelName || row.name;
+    title.textContent = row.displayName || row.modelName || row.name;
     title.title = row.name + (row.autofilled ? "  (range auto-filled from metadata)" : "");
     el.appendChild(title);
 
@@ -366,8 +396,10 @@ function createSlidersWidget(node, inputName) {
     slider.oninput = () => {
       row.value = parseFloat(slider.value);
       valueBox.value = row.value;
-      commit();
     };
+    // Avoid forcing a LiteGraph redraw for every step while the native range
+    // thumb is held; some ComfyUI versions otherwise interrupt mouse dragging.
+    slider.onchange = commit;
     el.appendChild(slider);
 
     // high label
@@ -408,7 +440,13 @@ function createSlidersWidget(node, inputName) {
       })
     );
     el.appendChild(
-      iconButton("⚙", "Configure min/max & labels", () => {
+      iconButton("↑", "Move this LoRA up", () => moveRow(index, index - 1))
+    );
+    el.appendChild(
+      iconButton("↓", "Move this LoRA down", () => moveRow(index, index + 1))
+    );
+    el.appendChild(
+      iconButton("⚙", "Configure display name, min/max & labels", () => {
         openConfigModal(row, rerenderRow);
       })
     );
@@ -434,6 +472,14 @@ function createSlidersWidget(node, inputName) {
       onClick();
     };
     return b;
+  }
+
+  function moveRow(from, to) {
+    if (from === to || from < 0 || from >= rows.length || to < 0 || to >= rows.length) return;
+    const [moved] = rows.splice(from, 1);
+    rows.splice(to, 0, moved);
+    render();
+    commit();
   }
 
   // ---- adding rows ----
@@ -624,6 +670,7 @@ function createSlidersWidget(node, inputName) {
   // ---- config modal ----
   function openConfigModal(row, onSaved) {
     const fields = [
+      { key: "displayName", label: "Display Name (blank = original filename)", type: "text" },
       { key: "min", label: "Strength Min", type: "number", step: "0.1" },
       { key: "max", label: "Strength Max", type: "number", step: "0.1" },
       { key: "step", label: "Step", type: "number", step: "0.01" },
@@ -631,6 +678,7 @@ function createSlidersWidget(node, inputName) {
       { key: "highLabel", label: "High / positive means…", type: "text" },
     ];
     modal(`Configure: ${row.modelName || row.name}`, fields, row, (values) => {
+      row.displayName = String(values.displayName || "").trim();
       row.min = parseFloat(values.min);
       row.max = parseFloat(values.max);
       row.step = Math.max(0.0001, parseFloat(values.step) || DEFAULTS.step);

@@ -14,6 +14,9 @@ at a time.
 - **One bipolar strength slider per LoRA**, with editable **min/max** bounds and
   **semantic end-labels** — e.g. label the low end *"skinny"* and the high end
   *"obese"*. The slider shows the **actual strength value** (not a 0–100 %).
+- Give each row a custom **Display Name** without changing its real LoRA filename.
+  Reorder rows with the ⠿ drag handle or the ↑ / ↓ buttons; `LORA_STACK` preserves
+  that order.
 - **Batch-add many LoRAs at once**, three ways:
   1. **+ Add LoRAs** — a searchable multi-select picker backed by LM's library. Search
      by name *or path*: include a `/` (e.g. `turbo/slider`) to match folders.
@@ -21,7 +24,7 @@ at a time.
      the LoRA Manager UI); each becomes a slider.
   3. **Import from Pool** — connect LM's **Lora Pool** node and pull in *every* LoRA
      matched by its folder/tag filters.
-- **Set values manually** (drag the slider or type a number), or **randomize**:
+- **Set values manually** (drag the slider continuously or type a number), or **randomize**:
   - per-slider 🎲, or **🎲 Strength** (all unlocked) — re-roll strengths in range;
   - **🎲 Enabled** — randomly enable/disable each unlocked slider;
   - **randomize each run** toggles — re-roll strength and/or enabled state on *every*
