@@ -31,7 +31,9 @@ at a time.
     queued run (great for batch variation);
   - 🔒 **lock** any slider and it is **never** touched by any randomize (manual or
     each-run).
-- **Best-effort auto-fill of min/max (and labels) from metadata.** Slider LoRAs rarely
+- **Uses the strength range you set in LoRA Manager.** If a LoRA has a Strength Min/Max
+  (or strength range) in LM's usage tips, a newly added slider takes that range.
+- **Otherwise, best-effort auto-fill of min/max (and labels) from metadata.** Slider LoRAs rarely
   expose their usable range as structured data — it's usually buried in the CivitAI
   description, e.g. *"Strength: Safe zone (-3 - +2.5) … Higher is thinner."* The node
   reads LM's stored description and parses the range + direction. Always editable via
@@ -69,7 +71,7 @@ is through LM's public HTTP API and shared ComfyUI types:
 | --- | --- |
 | Picker search (by name or folder path) | `GET /api/lm/loras/relative-paths` |
 | Expand a Lora Pool folder/tag selection | `POST /api/lm/loras/cycler-list` |
-| Resolve a LoRA's file path | `GET /api/lm/loras/list` |
+| Resolve a LoRA's file path and LM strength range (`usage_tips`) | `GET /api/lm/loras/list` |
 | Description for min/max parsing | `GET /api/lm/loras/model-description` |
 | Apply the result to MODEL/CLIP | output `LORA_STACK` → LM's Lora Loader |
 

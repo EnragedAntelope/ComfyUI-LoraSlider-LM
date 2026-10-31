@@ -82,6 +82,33 @@ function parseLabels(text) {
   return labels;
 }
 
+// Strength range the user set in LoRA Manager (a card's `usage_tips` JSON string).
+// Explicit strength_min/strength_max win over the "a-b" strength_range shorthand,
+// matching LM's own parseStrengthRange. Returns { min, max } or null.
+export function parseUsageTipsRange(usageTips) {
+  let tips = usageTips;
+  if (typeof tips === "string") {
+    try {
+      tips = JSON.parse(tips);
+    } catch (e) {
+      return null;
+    }
+  }
+  if (!tips || typeof tips !== "object") return null;
+  const num = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(+v) ? null : +v);
+  let min = num(tips.strength_min ?? tips.strengthMin);
+  let max = num(tips.strength_max ?? tips.strengthMax);
+  if (min === null || max === null) {
+    const m = String(tips.strength_range ?? tips.strengthRange ?? "").match(RANGE_RE);
+    if (m) {
+      if (min === null) min = parseFloat(m[1]);
+      if (max === null) max = parseFloat(m[2]);
+    }
+  }
+  if (min === null || max === null || !(min < max)) return null;
+  return { min, max };
+}
+
 export function parseStrengthHints(description) {
   if (!description) return {};
   try {

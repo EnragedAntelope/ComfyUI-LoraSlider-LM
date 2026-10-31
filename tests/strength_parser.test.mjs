@@ -2,7 +2,7 @@
 // Verifies the JS parser mirror matches the Python parser behavior.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseStrengthHints } from "../web/strength_parser.js";
+import { parseStrengthHints, parseUsageTipsRange } from "../web/strength_parser.js";
 
 test("sample Slender Slider description", () => {
   const r = parseStrengthHints(
@@ -53,4 +53,23 @@ test("no match returns empty", () => {
   assert.deepEqual(parseStrengthHints("A lovely style lora."), {});
   assert.deepEqual(parseStrengthHints(""), {});
   assert.deepEqual(parseStrengthHints(null), {});
+});
+
+test("LM usage_tips: explicit min/max win over strength_range", () => {
+  assert.deepEqual(
+    parseUsageTipsRange('{"strength_min": -2, "strength_max": 1.5, "strength_range": "0.3-0.8"}'),
+    { min: -2, max: 1.5 }
+  );
+  assert.deepEqual(parseUsageTipsRange({ strengthMin: "0.2", strengthMax: "0.9" }), { min: 0.2, max: 0.9 });
+});
+
+test("LM usage_tips: strength_range shorthand and bad input", () => {
+  assert.deepEqual(parseUsageTipsRange('{"strength_range": "0.3-0.8"}'), { min: 0.3, max: 0.8 });
+  assert.deepEqual(parseUsageTipsRange('{"strength_range": "-3 - 2.5"}'), { min: -3, max: 2.5 });
+  assert.equal(parseUsageTipsRange("{}"), null);
+  assert.equal(parseUsageTipsRange('{"strength": 0.6}'), null);
+  assert.equal(parseUsageTipsRange('{"strength_min": 1, "strength_max": 0.5}'), null);
+  assert.equal(parseUsageTipsRange("not json"), null);
+  assert.equal(parseUsageTipsRange(null), null);
+  assert.equal(parseUsageTipsRange(""), null);
 });

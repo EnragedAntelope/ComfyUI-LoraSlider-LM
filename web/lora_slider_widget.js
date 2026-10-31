@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { parseStrengthHints } from "./strength_parser.js";
+import { parseStrengthHints, parseUsageTipsRange } from "./strength_parser.js";
 
 /*
  * LoRA Slider (LoraManager) — front-end widget.
@@ -159,8 +159,8 @@ function normalizeRow(raw) {
 // LM metadata auto-fill (best effort)
 // ---------------------------------------------------------------------------
 
-// Resolve an absolute file_path for a LoRA name via LM's listing route.
-async function resolveFilePath(name) {
+// Find a LoRA's LM list card (file_path, usage_tips, ...) via LM's listing route.
+async function resolveCard(name) {
   const leaf = name.split("/").pop();
   const data = await lmFetchJson(
     `/api/lm/loras/list?page=1&page_size=100&search=${encodeURIComponent(leaf)}`
@@ -168,29 +168,40 @@ async function resolveFilePath(name) {
   const items = (data && (data.items || data.data || data.loras)) || [];
   for (const card of items) {
     if (nameFromCard(card) === name || stripExtension(card.file_name || "") === leaf) {
-      return card.file_path || card.filePath || "";
+      return card;
     }
   }
-  return "";
+  return null;
 }
 
-// Fetch the description for a LoRA and parse suggested min/max + labels into the row.
-// Only fills fields the user hasn't already customized away from defaults.
+// Fill a new row's range: the strength range set in LoRA Manager wins; otherwise
+// parse a suggested min/max from the description. Labels always come from the description.
 async function autofillRowFromMetadata(row, renderRow) {
   try {
-    let filePath = row.filePath;
-    if (!filePath) filePath = await resolveFilePath(row.name);
+    const card = await resolveCard(row.name);
+    const filePath = row.filePath || (card && (card.file_path || card.filePath)) || "";
     if (!filePath) return;
     row.filePath = filePath;
+
+    const lmRange = card && parseUsageTipsRange(card.usage_tips);
+    if (lmRange) {
+      row.min = lmRange.min;
+      row.max = lmRange.max;
+      row.value = clamp(row.value, row.min, row.max);
+      row.autofilled = true;
+    }
 
     const data = await lmFetchJson(
       `/api/lm/loras/model-description?file_path=${encodeURIComponent(filePath)}`
     );
     const description = data && data.success ? data.description : "";
-    if (!description) return;
+    if (!description) {
+      if (lmRange && renderRow) renderRow();
+      return;
+    }
 
     const hints = parseStrengthHints(description);
-    if (hints.min != null && hints.max != null) {
+    if (!lmRange && hints.min != null && hints.max != null) {
       row.min = hints.min;
       row.max = hints.max;
       row.value = clamp(row.value, row.min, row.max);
@@ -255,6 +266,7 @@ function readUpstreamPoolFilters(node) {
 
 function createSlidersWidget(node, inputName) {
   let rows = [];
+  let dragFrom = null; // index of the row being dragged within this node, else null
 
   const container = document.createElement("div");
   container.className = "lora-slider-widget";
@@ -336,25 +348,30 @@ function createSlidersWidget(node, inputName) {
     dragHandle.draggable = true;
     dragHandle.ondragstart = (e) => {
       e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", String(index));
+      e.dataTransfer.setData("text/plain", row.name);
+      dragFrom = index;
       el.classList.add("ls-dragging");
     };
-    dragHandle.ondragend = () => el.classList.remove("ls-dragging");
+    dragHandle.ondragend = () => {
+      dragFrom = null;
+      el.classList.remove("ls-dragging");
+    };
+    // Only react to a row dragged from this same node; leave file drops and
+    // drags from other slider nodes alone.
     el.ondragover = (e) => {
+      if (dragFrom === null) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       el.classList.add("ls-drag-over");
     };
     el.ondragleave = () => el.classList.remove("ls-drag-over");
     el.ondrop = (e) => {
+      if (dragFrom === null) return;
       e.preventDefault();
       el.classList.remove("ls-drag-over");
-      const from = Number.parseInt(e.dataTransfer.getData("text/plain"), 10);
-      if (!Number.isInteger(from) || from < 0 || from >= rows.length || from === index) return;
-      const [moved] = rows.splice(from, 1);
-      rows.splice(index, 0, moved);
-      render();
-      commit();
+      const from = dragFrom;
+      dragFrom = null;
+      moveRow(from, index);
     };
     el.appendChild(dragHandle);
 
