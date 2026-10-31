@@ -114,6 +114,21 @@
 }
 .ls-row.ls-inactive { opacity: 0.5; border-left-color: var(--ls-muted); }
 .ls-row.ls-locked { border-left-color: #b58df1; }
+.ls-row.ls-dragging { opacity: 0.35; }
+.ls-row.ls-drag-over {
+  border-top-color: var(--ls-accent);
+  box-shadow: 0 -2px 0 var(--ls-accent);
+}
+
+.ls-drag-handle {
+  flex: 0 0 auto;
+  color: var(--ls-muted);
+  cursor: grab;
+  font-size: 16px;
+  line-height: 1;
+  user-select: none;
+}
+.ls-drag-handle:active { cursor: grabbing; }
 
 .ls-active { flex: 0 0 auto; cursor: pointer; accent-color: var(--ls-accent); }
 

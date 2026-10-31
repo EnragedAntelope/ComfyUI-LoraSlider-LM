@@ -17,6 +17,17 @@ def test_basic_active_slider_emits_tuple():
     assert words == ""
 
 
+def test_display_name_does_not_replace_file_name_and_order_is_preserved():
+    stack, _ = build([
+        {"name": "folder/second", "displayName": "Friendly B", "value": 1},
+        {"name": "folder/first", "displayName": "Friendly A", "value": 0.5},
+    ])
+    assert stack == [
+        ("folder/second", 1.0, 1.0),
+        ("folder/first", 0.5, 0.5),
+    ]
+
+
 def test_inactive_slider_excluded():
     stack, _ = build([
         {"name": "a", "value": 1.0, "active": False},
