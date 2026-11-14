@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { parseStrengthHints, parseUsageTipsRange } from "./strength_parser.js";
+import { findPreset, parseStrengthHints, parseUsageTipsRange, presetKey } from "./strength_parser.js";
 
 /*
  * LoRA Slider (LoraManager) — front-end widget.
@@ -174,42 +174,71 @@ async function resolveCard(name) {
   return null;
 }
 
-// Fill a new row's range: the strength range set in LoRA Manager wins; otherwise
-// parse a suggested min/max from the description. Labels always come from the description.
-async function autofillRowFromMetadata(row, renderRow) {
-  try {
-    const card = await resolveCard(row.name);
-    const filePath = row.filePath || (card && (card.file_path || card.filePath)) || "";
-    if (!filePath) return;
-    row.filePath = filePath;
+// Slider presets live in ComfyUI's own user data folder (user/default/), read and
+// written through ComfyUI's /userdata route. Nothing is stored in LoRA Manager.
+const PRESETS_FILE = "lora_slider_presets.json";
 
-    const lmRange = card && parseUsageTipsRange(card.usage_tips);
-    if (lmRange) {
-      row.min = lmRange.min;
-      row.max = lmRange.max;
+// Throws on anything but "ok" or "file does not exist yet", so a failed read can
+// never be mistaken for an empty file and then saved over the real one.
+async function readPresets() {
+  const res = await api.fetchApi(`/userdata/${PRESETS_FILE}`);
+  if (res.status === 404) return {};
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("not a JSON object");
+  return data;
+}
+
+async function savePreset(row) {
+  const presets = await readPresets(); // re-read: the file may have been edited outside ComfyUI
+  const preset = { min: row.min, max: row.max, step: row.step, lowLabel: row.lowLabel, highLabel: row.highLabel };
+  if (row.displayName) preset.displayName = row.displayName;
+  presets[presetKey(row.name)] = preset;
+  const res = await api.fetchApi(`/userdata/${PRESETS_FILE}?overwrite=true`, {
+    method: "POST",
+    body: JSON.stringify(presets, null, 2),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+// Fill a row's range and labels. Range: the strength range set in LoRA Manager wins,
+// then the preset, then the description. Labels and display name: preset, then description.
+async function autofillRowFromMetadata(row, presets) {
+  try {
+    const preset = findPreset(presets, row.name) || {};
+    const card = await resolveCard(row.name);
+    if (card) row.filePath = row.filePath || card.file_path || card.filePath || "";
+
+    const applyRange = (range, source) => {
+      row.min = range.min;
+      row.max = range.max;
       row.value = clamp(row.value, row.min, row.max);
-      row.autofilled = true;
+      row.autofilled = source;
+    };
+    const lmRange = card && parseUsageTipsRange(card.usage_tips);
+    if (lmRange) applyRange(lmRange, "LoRA Manager");
+    else if (preset.min != null) applyRange(preset, "preset");
+    if (preset.step) row.step = preset.step;
+    if (preset.displayName && !row.displayName) row.displayName = preset.displayName;
+    for (const key of ["lowLabel", "highLabel"]) {
+      if (!preset[key]) continue;
+      row[key] = preset[key];
+      row.autofilled = row.autofilled || "preset";
     }
+
+    const haveRange = !!lmRange || preset.min != null;
+    if (!row.filePath || (haveRange && preset.lowLabel && preset.highLabel)) return;
 
     const data = await lmFetchJson(
-      `/api/lm/loras/model-description?file_path=${encodeURIComponent(filePath)}`
+      `/api/lm/loras/model-description?file_path=${encodeURIComponent(row.filePath)}`
     );
-    const description = data && data.success ? data.description : "";
-    if (!description) {
-      if (lmRange && renderRow) renderRow();
-      return;
+    const hints = parseStrengthHints(data && data.success ? data.description : "");
+    if (!haveRange && hints.min != null && hints.max != null) applyRange(hints, "description");
+    for (const key of ["lowLabel", "highLabel"]) {
+      if (preset[key] || !hints[key]) continue;
+      row[key] = hints[key];
+      row.autofilled = row.autofilled || "description";
     }
-
-    const hints = parseStrengthHints(description);
-    if (!lmRange && hints.min != null && hints.max != null) {
-      row.min = hints.min;
-      row.max = hints.max;
-      row.value = clamp(row.value, row.min, row.max);
-    }
-    if (hints.lowLabel) row.lowLabel = hints.lowLabel;
-    if (hints.highLabel) row.highLabel = hints.highLabel;
-    row.autofilled = true;
-    if (renderRow) renderRow();
   } catch (e) {
     /* best-effort: ignore */
   }
@@ -392,7 +421,8 @@ function createSlidersWidget(node, inputName) {
     const title = document.createElement("span");
     title.className = "ls-title";
     title.textContent = row.displayName || row.modelName || row.name;
-    title.title = row.name + (row.autofilled ? "  (range auto-filled from metadata)" : "");
+    const filledFrom = row.autofilled === true ? "metadata" : row.autofilled;
+    title.title = row.name + (filledFrom ? `  (auto-filled from ${filledFrom})` : "");
     el.appendChild(title);
 
     // low label
@@ -512,30 +542,36 @@ function createSlidersWidget(node, inputName) {
     }
     render();
     commit();
-    if (!autofill || !created.length) return;
+    if (autofill) autofillRows(created);
+  }
 
-    if (created.length > AUTOFILL_MAX_ROWS) {
-      setStatus(
-        `Added ${created.length} LoRAs. Skipped metadata auto-fill (too many) — set ranges with the ⚙ button.`
-      );
+  // Auto-fill ranges and labels for the given rows (new rows, or all unlocked rows
+  // when the user asks for it from the toolbar).
+  async function autofillRows(targets) {
+    if (!targets.length) return;
+    if (targets.length > AUTOFILL_MAX_ROWS) {
+      setStatus(`Skipped auto-fill for ${targets.length} LoRAs (too many) - set ranges with the gear button.`);
       return;
     }
-
+    // Read the presets file fresh each time so edits made outside ComfyUI are picked up.
+    const presets = await readPresets().catch((e) => {
+      console.warn(`[LoraSlider] could not read ${PRESETS_FILE}:`, e);
+      return {};
+    });
     // Throttled so we never flood LoRA Manager's server.
-    setStatus(`Auto-filling strength ranges 0/${created.length}…`);
-    runWithConcurrency(
-      created,
-      (row) => autofillRowFromMetadata(row, null),
+    setStatus(`Auto-filling ranges and labels 0/${targets.length}...`);
+    await runWithConcurrency(
+      targets,
+      (row) => autofillRowFromMetadata(row, presets),
       AUTOFILL_CONCURRENCY,
       (doneCount, total) => {
         render();
-        setStatus(doneCount < total ? `Auto-filling strength ranges ${doneCount}/${total}…` : "");
+        setStatus(doneCount < total ? `Auto-filling ranges and labels ${doneCount}/${total}...` : "");
       }
-    ).then(() => {
-      render();
-      commit();
-      setStatus("");
-    });
+    );
+    render();
+    commit();
+    setStatus("");
   }
 
   // ---- parse typed / pasted loras ----
@@ -598,6 +634,11 @@ function createSlidersWidget(node, inputName) {
     refreshSize();
   });
   toolbarButton("Import from Pool", "Add every LoRA matched by a connected Lora Pool node", importFromPool);
+  toolbarButton(
+    "Re-apply presets",
+    "Re-read range and labels for every unlocked slider (presets file, LoRA Manager range, description)",
+    () => autofillRows(rows.filter((r) => !r.locked))
+  );
 
   toolbarSeparator();
 
@@ -694,16 +735,32 @@ function createSlidersWidget(node, inputName) {
       { key: "lowLabel", label: "Low / negative means…", type: "text" },
       { key: "highLabel", label: "High / positive means…", type: "text" },
     ];
-    modal(`Configure: ${row.modelName || row.name}`, fields, row, (values) => {
+    const apply = (values) => {
+      const min = parseFloat(values.min);
+      const max = parseFloat(values.max);
       row.displayName = String(values.displayName || "").trim();
-      row.min = parseFloat(values.min);
-      row.max = parseFloat(values.max);
+      // Ignore an emptied or inverted min/max instead of breaking the slider.
+      if (Number.isFinite(min) && Number.isFinite(max) && min !== max) {
+        row.min = Math.min(min, max);
+        row.max = Math.max(min, max);
+      }
       row.step = Math.max(0.0001, parseFloat(values.step) || DEFAULTS.step);
       row.lowLabel = values.lowLabel;
       row.highLabel = values.highLabel;
       row.value = clamp(row.value, row.min, row.max);
       row.autofilled = false;
       onSaved();
+    };
+    modal(`Configure: ${row.modelName || row.name}`, fields, row, apply, {
+      label: "Save as preset",
+      title: `Save, and remember these settings for this LoRA in every workflow (${PRESETS_FILE} in ComfyUI's user folder)`,
+      onClick: (values) => {
+        apply(values);
+        savePreset(row).then(
+          () => setStatus(`Saved preset for ${row.modelName || row.name}.`),
+          (e) => setStatus(`Could not save preset (${e.message}); the presets file was left untouched.`)
+        );
+      },
     });
   }
 
@@ -714,9 +771,15 @@ function createSlidersWidget(node, inputName) {
     box.className = "ls-modal";
     box.innerHTML = `
       <h3>Add LoRAs</h3>
-      <input class="ls-search" type="text" placeholder="Search by name or path, e.g. turbo/slider …" autocomplete="off">
-      <div class="ls-picker-hint">Tip: include a “/” to match folders — “turbo/slider” finds LoRAs whose path contains both.</div>
-      <div class="ls-picker-list">Loading…</div>
+      <select class="ls-search ls-folder" title="Show every LoRA in one folder (and its subfolders)"><option value="">All folders</option></select>
+      <input class="ls-search" type="text" placeholder="Search by name or path, e.g. turbo/slider ..." autocomplete="off">
+      <div class="ls-picker-hint">Pick a folder to list everything in it, then "Select all shown" and untick what you do not want.</div>
+      <div class="ls-picker-bulk">
+        <button class="ls-cancel ls-all">Select all shown</button>
+        <button class="ls-cancel ls-none">Select none</button>
+        <span class="ls-count"></span>
+      </div>
+      <div class="ls-picker-list">Loading...</div>
       <div class="ls-modal-actions">
         <button class="ls-cancel">Cancel</button>
         <button class="ls-confirm">Add selected</button>
@@ -726,21 +789,62 @@ function createSlidersWidget(node, inputName) {
 
     const searchEl = box.querySelector(".ls-search");
     const listEl = box.querySelector(".ls-picker-list");
+    const folderEl = box.querySelector(".ls-folder");
+    const countEl = box.querySelector(".ls-count");
     const selected = new Map();
+    let shown = []; // checkboxes currently listed
+    let loadSeq = 0;
 
-    async function load(search) {
-      listEl.textContent = "Loading…";
+    const updateCount = () => {
+      countEl.textContent = `${selected.size} selected, ${shown.length} shown`;
+    };
+    const setAllShown = (checked) => {
+      for (const cb of shown) {
+        cb.checked = checked;
+        cb.onchange();
+      }
+    };
+    box.querySelector(".ls-all").onclick = () => setAllShown(true);
+    box.querySelector(".ls-none").onclick = () => setAllShown(false);
+
+    lmFetchJson("/api/lm/loras/folders").then((data) => {
+      for (const folder of ((data && data.folders) || []).filter(Boolean).sort()) {
+        const opt = document.createElement("option");
+        opt.value = opt.textContent = folder;
+        folderEl.appendChild(opt);
+      }
+    });
+
+    async function load() {
+      const seq = ++loadSeq;
+      const folder = folderEl.value;
+      listEl.textContent = "Loading...";
       // Use the relative-paths endpoint: it matches search tokens as substrings against
       // the full relative path (folder + name). Treat "/" and "\" as token separators so
       // "turbo/slider" => tokens ["turbo","slider"], both required (AND) anywhere in path.
-      const tokens = (search || "").trim().replace(/[\\/]+/g, " ");
-      const data = await lmFetchJson(
-        `/api/lm/loras/relative-paths?limit=100&search=${encodeURIComponent(tokens)}`
-      );
-      const paths = (data && data.relative_paths) || [];
+      const tokens = searchEl.value.trim().replace(/[\\/]+/g, " ");
+      // LM caps a page at 100. A chosen folder is listed in full (bounded: 10 pages);
+      // an unscoped search stays at one page.
+      const PAGE = 100;
+      const maxPages = folder ? 10 : 1;
+      let paths = [];
+      for (let page = 0; page < maxPages; page++) {
+        const data = await lmFetchJson(
+          `/api/lm/loras/relative-paths?limit=${PAGE}&offset=${page * PAGE}` +
+            `&search=${encodeURIComponent(tokens)}` +
+            (folder ? `&folder=${encodeURIComponent(folder)}` : "")
+        );
+        const batch = (data && data.relative_paths) || [];
+        paths = paths.concat(batch);
+        if (batch.length < PAGE) break;
+      }
+      if (seq !== loadSeq) return; // a newer search or folder change superseded this one
+      if (folder) paths.sort((a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: "base" }));
       listEl.innerHTML = "";
+      shown = [];
       if (!paths.length) {
         listEl.textContent = "No matches.";
+        updateCount();
         return;
       }
       for (const rel of paths) {
@@ -758,22 +862,26 @@ function createSlidersWidget(node, inputName) {
           } else {
             selected.delete(name);
           }
+          updateCount();
         };
+        shown.push(cb);
         const text = document.createElement("span");
         text.textContent = name;
         rowEl.appendChild(cb);
         rowEl.appendChild(text);
         listEl.appendChild(rowEl);
       }
+      updateCount();
     }
 
     let debounce;
     searchEl.oninput = () => {
       clearTimeout(debounce);
-      debounce = setTimeout(() => load(searchEl.value), 200);
+      debounce = setTimeout(load, 200);
     };
+    folderEl.onchange = load;
 
-    box.querySelector(".ls-cancel").onclick = () => overlay.remove();
+    box.querySelector(".ls-modal-actions .ls-cancel").onclick = () => overlay.remove();
     box.querySelector(".ls-confirm").onclick = () => {
       onAdd(Array.from(selected.values()), { autofill: true });
       overlay.remove();
@@ -782,7 +890,7 @@ function createSlidersWidget(node, inputName) {
       if (e.target === overlay) overlay.remove();
     };
 
-    await load("");
+    await load();
     searchEl.focus();
   }
 
@@ -790,10 +898,13 @@ function createSlidersWidget(node, inputName) {
   function makeOverlay() {
     const overlay = document.createElement("div");
     overlay.className = "ls-overlay";
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") overlay.remove();
+    });
     return overlay;
   }
 
-  function modal(titleText, fields, source, onSave) {
+  function modal(titleText, fields, source, onSave, extra) {
     const overlay = makeOverlay();
     const box = document.createElement("div");
     box.className = "ls-modal";
@@ -826,15 +937,27 @@ function createSlidersWidget(node, inputName) {
     const save = document.createElement("button");
     save.className = "ls-confirm";
     save.textContent = "Save";
-    save.onclick = () => {
+    const submit = (handler) => () => {
       const values = {};
       for (const k in inputs) values[k] = inputs[k].value;
-      onSave(values);
+      handler(values);
       overlay.remove();
     };
+    save.onclick = submit(onSave);
     actions.appendChild(cancel);
+    if (extra) {
+      const extraBtn = document.createElement("button");
+      extraBtn.className = "ls-cancel";
+      extraBtn.textContent = extra.label;
+      extraBtn.title = extra.title || "";
+      extraBtn.onclick = submit(extra.onClick);
+      actions.appendChild(extraBtn);
+    }
     actions.appendChild(save);
     box.appendChild(actions);
+    box.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && e.target.tagName === "INPUT") save.click();
+    });
 
     overlay.appendChild(box);
     overlay.onmousedown = (e) => {

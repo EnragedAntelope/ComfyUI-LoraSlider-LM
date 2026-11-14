@@ -22,3 +22,7 @@ Thumbs.db
 .idea/
 *.swp
 *~
+
+# Locally generated slider presets (personal library, never committed)
+local/
+.playwright-mcp/
