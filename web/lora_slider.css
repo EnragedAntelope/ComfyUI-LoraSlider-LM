@@ -230,6 +230,16 @@
 }
 .ls-search { margin-bottom: 6px; }
 
+.ls-picker-bulk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: #8b94a3;
+}
+.ls-picker-bulk button { padding: 4px 10px; }
+
 .ls-picker-list {
   max-height: 340px;
   overflow-y: auto;
